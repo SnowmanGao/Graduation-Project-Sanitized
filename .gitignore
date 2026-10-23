@@ -1,0 +1,15 @@
+*.tmp
+*.bak
+~$*.docx
+~$*.pptx
+.venv/
+__pycache__
+
+desktop.ini
+*快捷方式.lnk
+
+参考文献/*.docx
+
+过程模拟/Aspen Plus/PET*/
+过程模拟/Aspen Plus/PET.xml
+plot.log

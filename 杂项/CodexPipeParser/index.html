@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>管道编号解析器</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <h1>管道编号解析器</h1>
+      <p class="subtitle">输入完整管道编号，或直接编辑下方字段，页面会实时双向同步。</p>
+
+      <input
+        id="codeInput"
+        class="hero-input"
+        type="text"
+        spellcheck="false"
+        autocomplete="off"
+        placeholder="例如：PG-1405-25-L1B-30H"
+      />
+
+      <div class="inline-meta">
+        <div class="pill">格式：完整模式</div>
+        <div id="normalizedPill" class="pill">标准化：-</div>
+      </div>
+
+      <section class="layout">
+        <div id="editorCard" class="card">
+          <h2>字段编辑</h2>
+          <div class="grid">
+            <div class="field-row" data-field="materialCode">
+              <label for="materialCode">物料代号</label>
+              <select id="materialCode" data-key="materialCode"></select>
+            </div>
+
+            <div class="compound-row">
+              <label>主项编号+管道序号</label>
+              <div class="compound-parts pipe-seq-parts">
+                <div class="field-row" data-field="unitNo">
+                  <label for="unitNo">主项编号</label>
+                  <input id="unitNo" data-key="unitNo" type="number" inputmode="numeric" />
+                </div>
+                <div class="field-row" data-field="lineSeq">
+                  <label for="lineSeq">管道序号</label>
+                  <input id="lineSeq" data-key="lineSeq" type="number" inputmode="numeric" />
+                </div>
+              </div>
+            </div>
+
+            <div class="field-row" data-field="pipeSize">
+              <label for="pipeSize">管道规格/管径</label>
+              <input id="pipeSize" data-key="pipeSize" type="number" inputmode="numeric" />
+            </div>
+
+            <div class="compound-row">
+              <label>管道等级</label>
+              <div class="compound-parts pipe-class-parts">
+                <div class="field-row" data-field="pressureGradeCode">
+                  <label for="pressureGradeCode">公称压力等级代号</label>
+                  <select id="pressureGradeCode" data-key="pressureGradeCode"></select>
+                </div>
+                <div class="field-row" data-field="classSequenceNo">
+                  <label for="classSequenceNo">等级顺序号</label>
+                  <input id="classSequenceNo" data-key="classSequenceNo" type="number" inputmode="numeric" />
+                </div>
+                <div class="field-row" data-field="materialCategoryCode">
+                  <label for="materialCategoryCode">材质类别代号</label>
+                  <select id="materialCategoryCode" data-key="materialCategoryCode"></select>
+                </div>
+              </div>
+            </div>
+
+            <div class="compound-row">
+              <label>绝热/隔声代号</label>
+              <div class="compound-parts insulation-parts">
+                <div class="field-row" data-field="insulationThickness">
+                  <label for="insulationThickness">厚度</label>
+                  <input id="insulationThickness" data-key="insulationThickness" type="number" inputmode="numeric" />
+                </div>
+                <div class="field-row" data-field="insulationType">
+                  <label for="insulationType">功能代号</label>
+                  <select id="insulationType" data-key="insulationType"></select>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="explainCard" class="card">
+          <h2>解析说明</h2>
+          <div id="statusList" class="status-list"></div>
+          <div id="explainList" class="explain-list"></div>
+        </div>
+      </section>
+    </main>
+
+    <script src="./pipeCodeDefinition.js"></script>
+    <script src="./pipeCodeParser.js"></script>
+    <script>
+      const definition = window.PIPE_CODE_DEFINITION;
+      const parser = window.PIPE_CODE_PARSER;
+
+      const codeInput = document.getElementById("codeInput");
+      const normalizedPill = document.getElementById("normalizedPill");
+      const editorCard = document.getElementById("editorCard");
+      const explainCard = document.getElementById("explainCard");
+      const statusList = document.getElementById("statusList");
+      const explainList = document.getElementById("explainList");
+
+      const fields = {
+        materialCode: document.getElementById("materialCode"),
+        unitNo: document.getElementById("unitNo"),
+        lineSeq: document.getElementById("lineSeq"),
+        pipeSize: document.getElementById("pipeSize"),
+        pressureGradeCode: document.getElementById("pressureGradeCode"),
+        classSequenceNo: document.getElementById("classSequenceNo"),
+        materialCategoryCode: document.getElementById("materialCategoryCode"),
+        insulationThickness: document.getElementById("insulationThickness"),
+        insulationType: document.getElementById("insulationType"),
+      };
+
+      function fillSelect(select, options) {
+        select.innerHTML = "";
+
+        const placeholder = document.createElement("option");
+        placeholder.value = "";
+        placeholder.textContent = "请选择";
+        select.appendChild(placeholder);
+
+        Object.entries(options).forEach(([value, label]) => {
+          const option = document.createElement("option");
+          option.value = value;
+          option.textContent = `${value} - ${label}`;
+          select.appendChild(option);
+        });
+      }
+
+      function ensureCustomOption(select, value, suffix) {
+        if (!value || select.querySelector(`option[value="${value}"]`)) {
+          return;
+        }
+
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = `${value} - ${suffix}`;
+        option.dataset.custom = "true";
+        select.insertBefore(option, select.children[1] || null);
+      }
+
+      function clearTransientCustomOptions() {
+        document.querySelectorAll("option[data-custom='true']").forEach((option) => option.remove());
+      }
+
+      function applyFieldHighlight(keys) {
+        keys.forEach((key) => {
+          const row = document.querySelector(`[data-field="${key}"]`);
+          if (!row) {
+            return;
+          }
+          replayAnimationClass(row, "field-updated");
+        });
+      }
+
+      function flashCodeInput() {
+        replayAnimationClass(codeInput, "input-updated");
+      }
+
+      function replayAnimationClass(element, className) {
+        element.classList.remove(className);
+        void element.offsetWidth;
+        element.classList.add(className);
+
+        const handleAnimationEnd = () => {
+          element.classList.remove(className);
+          element.removeEventListener("animationend", handleAnimationEnd);
+        };
+
+        element.addEventListener("animationend", handleAnimationEnd);
+      }
+
+      function setFieldValues(segments) {
+        Object.entries(fields).forEach(([key, input]) => {
+          input.value = segments[key] || "";
+        });
+      }
+
+      function renderStatus(parsed) {
+        statusList.innerHTML = "";
+        const visibleWarnings = parsed.warnings.filter((message) => !message.startsWith("materialCode "));
+        const hasError = parsed.errors.length > 0;
+
+        editorCard.classList.remove("card-disabled");
+        explainCard.classList.toggle("card-disabled", hasError);
+
+        if (!hasError && !visibleWarnings.length) {
+          const item = document.createElement("div");
+          item.className = "status-item";
+          item.textContent = "✅ 运行正常";
+          statusList.appendChild(item);
+          return;
+        }
+
+        parsed.errors.forEach((message) => {
+          const item = document.createElement("div");
+          item.className = "status-item error";
+          item.textContent = `❌ ${message}`;
+          statusList.appendChild(item);
+        });
+
+        visibleWarnings.forEach((message) => {
+          const item = document.createElement("div");
+          item.className = "status-item warning";
+          item.textContent = `⚠️ ${message}`;
+          statusList.appendChild(item);
+        });
+      }
+
+      function renderExplain(display) {
+        explainList.innerHTML = "";
+
+        Object.entries(display).forEach(([key, meta]) => {
+          if (!meta) {
+            return;
+          }
+
+          const item = document.createElement("div");
+          item.className = "explain-item";
+
+          const title = document.createElement("div");
+          title.className = "item-key";
+          title.textContent = definition.labels[key] || key;
+
+          const value = document.createElement("div");
+          value.className = "item-value";
+          value.textContent = `${meta.code} - ${meta.label}`;
+
+          if (meta.isCustom) {
+            const badge = document.createElement("span");
+            badge.className = "badge custom";
+            badge.textContent = key === "materialCode" ? "自定义物料代号" : "待确认";
+            value.appendChild(badge);
+          }
+
+          item.append(title, value);
+          explainList.appendChild(item);
+        });
+      }
+
+      function renderParsed(parsed, changedKeys = []) {
+        clearTransientCustomOptions();
+        ensureCustomOption(fields.materialCode, parsed.segments.materialCode, "自定义物料代号");
+        ensureCustomOption(fields.pressureGradeCode, parsed.segments.pressureGradeCode, "未收录");
+        ensureCustomOption(fields.materialCategoryCode, parsed.segments.materialCategoryCode, "未收录");
+        ensureCustomOption(fields.insulationType, parsed.segments.insulationType, "未收录");
+
+        setFieldValues(parsed.segments);
+        normalizedPill.textContent = `标准化：${parsed.normalized || "-"}`;
+        renderStatus(parsed);
+        renderExplain(parsed.display);
+        applyFieldHighlight(changedKeys);
+      }
+
+      function readFormSegments() {
+        return {
+          materialCode: fields.materialCode.value,
+          unitNo: fields.unitNo.value,
+          lineSeq: fields.lineSeq.value,
+          pipeSize: fields.pipeSize.value,
+          pressureGradeCode: fields.pressureGradeCode.value,
+          classSequenceNo: fields.classSequenceNo.value,
+          materialCategoryCode: fields.materialCategoryCode.value,
+          insulationThickness: fields.insulationThickness.value,
+          insulationType: fields.insulationType.value,
+        };
+      }
+
+      function handleCodeInput(rawValue) {
+        const previous = readFormSegments();
+        const parsed = parser.parse(rawValue);
+        const changedKeys = Object.keys(parsed.segments).filter(
+          (key) => previous[key] && previous[key] !== parsed.segments[key],
+        );
+
+        if (parsed.ok) {
+          codeInput.value = parsed.normalized;
+        }
+
+        renderParsed(parsed, changedKeys);
+      }
+
+      function handleFormInput() {
+        const composed = parser.compose(readFormSegments());
+        codeInput.value = composed;
+        flashCodeInput();
+
+        if (!composed) {
+          const partial = {
+            ok: false,
+            normalized: "",
+            segments: readFormSegments(),
+            display: parser.explain(readFormSegments()),
+            errors: ["字段未填写完整，无法生成完整管道号。"],
+            warnings: [],
+          };
+          normalizedPill.textContent = "标准化：-";
+          renderStatus(partial);
+          renderExplain(partial.display);
+          return;
+        }
+
+        renderParsed(parser.parse(composed));
+      }
+
+      fillSelect(fields.materialCode, definition.enums.materialCodes);
+      fillSelect(fields.pressureGradeCode, definition.enums.pressureGradeCodes);
+      fillSelect(fields.materialCategoryCode, definition.enums.materialCategoryCodes);
+      fillSelect(fields.insulationType, definition.enums.insulationTypeCodes);
+
+      codeInput.addEventListener("input", (event) => handleCodeInput(event.target.value));
+
+      editorCard.addEventListener("input", (event) => {
+        if (!event.target.dataset.key) {
+          return;
+        }
+        handleFormInput();
+      });
+
+      handleCodeInput("PG-1405-25-L1B-30H");
+    </script>
+  </body>
+</html>
